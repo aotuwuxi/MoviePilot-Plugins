@@ -499,44 +499,114 @@ class SubscriptionMultiVersion(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
-        获取插件配置表单
+        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         return [
             {
-                'component': 'v-switch',
-                'props': {
-                    'label': '启用插件',
-                    'placeholder': '是否启用插件'
-                },
-                'name': 'enabled',
-                'required': True
-            },
-            {
-                'component': 'v-switch',
-                'props': {
-                    'label': '启用查询功能',
-                    'placeholder': '是否启用查询订阅种子功能'
-                },
-                'name': 'enable_search',
-                'required': True
-            },
-            {
-                'component': 'v-switch',
-                'props': {
-                    'label': '启用过滤功能',
-                    'placeholder': '是否启用种子过滤功能'
-                },
-                'name': 'enable_filter',
-                'required': True
-            },
-            {
-                'component': 'v-textarea',
-                'props': {
-                    'label': '默认过滤规则',
-                    'placeholder': '默认的过滤规则，JSON格式或键值对格式'
-                },
-                'name': 'default_filter_rules',
-                'required': False
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enabled',
+                                            'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enable_search',
+                                            'label': '启用查询功能',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enable_filter',
+                                            'label': '启用过滤功能',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextarea',
+                                        'props': {
+                                            'model': 'default_filter_rules',
+                                            'label': '默认过滤规则',
+                                            'placeholder': '默认的过滤规则，JSON格式或键值对格式',
+                                            'rows': 4,
+                                            'hint': '默认的过滤规则，JSON格式或键值对格式',
+                                            'persistent-hint': True
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '订阅多资源版本订阅插件提供基于订阅的多资源版本管理和过滤功能。'
+                                                    '启用查询功能后，插件会根据订阅信息查询种子资源。'
+                                                    '启用过滤功能后，插件会根据设定的规则过滤种子资源。'
+                                                    '过滤规则支持JSON格式或键值对格式。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
             }
         ], {
             "enabled": False,
@@ -549,93 +619,7 @@ class SubscriptionMultiVersion(_PluginBase):
         """
         获取插件页面
         """
-        return [
-            {
-                'component': 'v-form',
-                'content': [
-                    {
-                        'component': 'v-row',
-                        'content': [
-                            {
-                                'component': 'v-col',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'v-switch',
-                                        'props': {
-                                            'label': '启用插件',
-                                            'model': 'enabled'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'v-col',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'v-switch',
-                                        'props': {
-                                            'label': '启用查询功能',
-                                            'model': 'enable_search'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'v-row',
-                        'content': [
-                            {
-                                'component': 'v-col',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'v-switch',
-                                        'props': {
-                                            'label': '启用过滤功能',
-                                            'model': 'enable_filter'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'v-row',
-                        'content': [
-                            {
-                                'component': 'v-col',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'v-textarea',
-                                        'props': {
-                                            'label': '默认过滤规则',
-                                            'placeholder': '默认的过滤规则，JSON格式或键值对格式',
-                                            'rows': 4,
-                                            'model': 'default_filter_rules'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
+        pass
 
     def stop_service(self):
         """
