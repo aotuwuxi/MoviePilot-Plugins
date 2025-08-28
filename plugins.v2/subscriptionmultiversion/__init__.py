@@ -234,7 +234,8 @@ class SubscriptionMultiVersion(_PluginBase):
 
             # 首先处理已下载的种子
             for torrent in downloaded_torrents:
-                if torrent.meta_info and torrent.meta_info.org_string and torrent.meta_info.org_string.startswith("downloaded:"):
+                if torrent.meta_info and torrent.meta_info.org_string and torrent.meta_info.org_string.startswith(
+                        "downloaded:"):
                     # 检查已下载种子是否通过过滤
                     if self._check_torrent_filter(torrent, filter_params):
                         # 记录已下载的集数
@@ -243,7 +244,8 @@ class SubscriptionMultiVersion(_PluginBase):
 
             # 处理搜索到的种子
             for torrent in all_torrents:
-                if not (torrent.meta_info and torrent.meta_info.org_string and torrent.meta_info.org_string.startswith("downloaded:")):
+                if not (torrent.meta_info and torrent.meta_info.org_string and torrent.meta_info.org_string.startswith(
+                        "downloaded:")):
                     # 检查是否已经被已下载种子覆盖
                     if self._is_episode_covered(torrent, downloaded_episodes):
                         continue
@@ -313,7 +315,8 @@ class SubscriptionMultiVersion(_PluginBase):
             logger.error(f"获取已下载种子失败: {str(e)}")
             return []
 
-    def _search_site_torrents(self, media_info: MediaInfo, search_sites: List[str], subscribe: Subscribe) -> List[Context]:
+    def _search_site_torrents(self, media_info: MediaInfo, search_sites: List[str], subscribe: Subscribe) -> List[
+        Context]:
         """
         搜索站点种子
         """
@@ -481,7 +484,8 @@ class SubscriptionMultiVersion(_PluginBase):
         try:
             # 更新订阅状态逻辑
             for torrent in filtered_torrents:
-                if torrent.meta_info and torrent.meta_info.org_string and torrent.meta_info.org_string.startswith("downloaded:"):
+                if torrent.meta_info and torrent.meta_info.org_string and torrent.meta_info.org_string.startswith(
+                        "downloaded:"):
                     # 已下载种子通过过滤，更新对应订阅状态
                     # 这里需要从org_string中解析subscribe_id，或者使用其他方式存储
                     # 由于当前实现没有存储subscribe_id，这里只是示例
@@ -489,17 +493,17 @@ class SubscriptionMultiVersion(_PluginBase):
                         title="订阅状态更新",
                         text=f"已下载种子通过过滤检查"
                     )
-                        
+
         except Exception as e:
             logger.error(f"更新订阅状态失败: {str(e)}")
-    
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         获取插件配置表单
         """
         return [
             {
-                'component': 'Switch',
+                'component': 'v-switch',
                 'props': {
                     'label': '启用插件',
                     'placeholder': '是否启用插件'
@@ -508,7 +512,7 @@ class SubscriptionMultiVersion(_PluginBase):
                 'required': True
             },
             {
-                'component': 'Switch',
+                'component': 'v-switch',
                 'props': {
                     'label': '启用查询功能',
                     'placeholder': '是否启用查询订阅种子功能'
@@ -517,7 +521,7 @@ class SubscriptionMultiVersion(_PluginBase):
                 'required': True
             },
             {
-                'component': 'Switch',
+                'component': 'v-switch',
                 'props': {
                     'label': '启用过滤功能',
                     'placeholder': '是否启用种子过滤功能'
@@ -526,7 +530,7 @@ class SubscriptionMultiVersion(_PluginBase):
                 'required': True
             },
             {
-                'component': 'Textarea',
+                'component': 'v-textarea',
                 'props': {
                     'label': '默认过滤规则',
                     'placeholder': '默认的过滤规则，JSON格式或键值对格式'
@@ -540,27 +544,27 @@ class SubscriptionMultiVersion(_PluginBase):
             "enable_filter": True,
             "default_filter_rules": ""
         }
-    
+
     def get_page(self) -> List[dict]:
         """
         获取插件页面
         """
         return [
             {
-                'component': 'VForm',
+                'component': 'v-form',
                 'content': [
                     {
-                        'component': 'VRow',
+                        'component': 'v-row',
                         'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'v-col',
                                 'props': {
                                     'cols': 12,
                                     'md': 6
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'v-switch',
                                         'props': {
                                             'label': '启用插件',
                                             'model': 'enabled'
@@ -569,14 +573,14 @@ class SubscriptionMultiVersion(_PluginBase):
                                 ]
                             },
                             {
-                                'component': 'VCol',
+                                'component': 'v-col',
                                 'props': {
                                     'cols': 12,
                                     'md': 6
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'v-switch',
                                         'props': {
                                             'label': '启用查询功能',
                                             'model': 'enable_search'
@@ -587,17 +591,17 @@ class SubscriptionMultiVersion(_PluginBase):
                         ]
                     },
                     {
-                        'component': 'VRow',
+                        'component': 'v-row',
                         'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'v-col',
                                 'props': {
                                     'cols': 12,
                                     'md': 6
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSwitch',
+                                        'component': 'v-switch',
                                         'props': {
                                             'label': '启用过滤功能',
                                             'model': 'enable_filter'
@@ -608,16 +612,16 @@ class SubscriptionMultiVersion(_PluginBase):
                         ]
                     },
                     {
-                        'component': 'VRow',
+                        'component': 'v-row',
                         'content': [
                             {
-                                'component': 'VCol',
+                                'component': 'v-col',
                                 'props': {
                                     'cols': 12
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextarea',
+                                        'component': 'v-textarea',
                                         'props': {
                                             'label': '默认过滤规则',
                                             'placeholder': '默认的过滤规则，JSON格式或键值对格式',
@@ -632,7 +636,7 @@ class SubscriptionMultiVersion(_PluginBase):
                 ]
             }
         ]
-    
+
     def stop_service(self):
         """
         停止插件服务
