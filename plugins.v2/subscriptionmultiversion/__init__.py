@@ -8,7 +8,8 @@ from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
 
 from app.core.config import settings
-from app.core.context import ActionContext, Context, MediaInfo
+from app.core.context import Context, MediaInfo
+from app.schemas.workflow import ActionContext
 from app.core.plugin import PluginType, _PluginBase
 from app.helper.torrent import TorrentHelper
 from app.helper.subscribe import SubscribeHelper
