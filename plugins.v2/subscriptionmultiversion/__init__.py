@@ -237,43 +237,31 @@ class SubscriptionMultiVersion(_PluginBase):
 
         # 查询订阅种子动作
         if self._enable_search:
-            actions.append(Action(
-                action_id="query_subscribe_torrents",
-                name="查询订阅种子",
-                func=self.query_subscribe_torrents,
-                description="根据订阅查询种子资源",
-                kwargs={
+            actions.append({
+                "action_id": "query_subscribe_torrents",
+                "name": "查询订阅种子",
+                "func": self.query_subscribe_torrents,
+                "description": "根据订阅查询种子资源",
+                "kwargs": {
                     "subscribe_ids": [],
                     "search_sites": []
                 }
-            ))
+            })
 
         # 种子过滤动作
         if self._enable_filter:
-            actions.append(Action(
-                action_id="filter_torrents",
-                name="过滤种子",
-                func=self.filter_torrents,
-                description="根据规则过滤种子资源",
-                kwargs={
+            actions.append({
+                "action_id": "filter_torrents",
+                "name": "过滤种子",
+                "func": self.filter_torrents,
+                "description": "根据规则过滤种子资源",
+                "kwargs": {
                     "filter_rules": self._default_filter_rules,
                     "prioritize_downloaded": True
                 }
-            ))
+            })
 
         return actions
-
-
-class Action:
-    """
-    动作对象，用于提供属性访问方式
-    """
-    def __init__(self, action_id, name, func, description, kwargs):
-        self.action_id = action_id
-        self.name = name
-        self.func = func
-        self.description = description
-        self.kwargs = kwargs
 
     def query_subscribe_torrents(self, context: ActionContext, **kwargs) -> Tuple[bool, ActionContext]:
         """
