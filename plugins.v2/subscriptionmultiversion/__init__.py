@@ -90,6 +90,142 @@ class SubscriptionMultiVersion(_PluginBase):
         """
         return self._enabled
 
+    def get_api(self) -> List[Dict[str, Any]]:
+        """
+        注册插件API
+        """
+        return [
+            {
+                "path": "/query",
+                "endpoint": self.query_subscribe_torrents_api,
+                "methods": ["POST"],
+                "summary": "查询订阅种子",
+                "description": "根据订阅查询种子资源",
+                "auth": "apikey"
+            },
+            {
+                "path": "/filter",
+                "endpoint": self.filter_torrents_api,
+                "methods": ["POST"],
+                "summary": "过滤种子",
+                "description": "根据规则过滤种子资源",
+                "auth": "apikey"
+            },
+            {
+                "path": "/config",
+                "endpoint": self.get_config_api,
+                "methods": ["GET"],
+                "summary": "获取插件配置",
+                "description": "获取插件当前配置信息",
+                "auth": "apikey"
+            },
+            {
+                "path": "/status",
+                "endpoint": self.get_status_api,
+                "methods": ["GET"],
+                "summary": "获取插件状态",
+                "description": "获取插件运行状态信息",
+                "auth": "apikey"
+            }
+        ]
+
+    def query_subscribe_torrents_api(self):
+        """
+        查询订阅种子API端点
+        """
+        from fastapi import HTTPException
+        try:
+            if not self._enabled:
+                raise HTTPException(status_code=400, detail="插件未启用")
+
+            if not self._enable_search:
+                raise HTTPException(status_code=400, detail="查询功能未启用")
+
+            # 这里可以添加查询逻辑，返回查询结果
+            return {
+                "success": True,
+                "message": "查询功能可用",
+                "data": {
+                    "enabled": self._enabled,
+                    "search_enabled": self._enable_search,
+                    "filter_enabled": self._enable_filter
+                }
+            }
+        except Exception as e:
+            logger.error(f"查询订阅种子API调用失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def filter_torrents_api(self):
+        """
+        过滤种子API端点
+        """
+        from fastapi import HTTPException
+        try:
+            if not self._enabled:
+                raise HTTPException(status_code=400, detail="插件未启用")
+
+            if not self._enable_filter:
+                raise HTTPException(status_code=400, detail="过滤功能未启用")
+
+            # 这里可以添加过滤逻辑，返回过滤结果
+            return {
+                "success": True,
+                "message": "过滤功能可用",
+                "data": {
+                    "enabled": self._enabled,
+                    "filter_enabled": self._enable_filter,
+                    "default_filter_rules": self._default_filter_rules
+                }
+            }
+        except Exception as e:
+            logger.error(f"过滤种子API调用失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def get_config_api(self):
+        """
+        获取插件配置API端点
+        """
+        from fastapi import HTTPException
+        try:
+            config = self.get_config()
+            if not config:
+                config = {
+                    "enabled": False,
+                    "enable_search": True,
+                    "enable_filter": True,
+                    "default_filter_rules": ""
+                }
+
+            return {
+                "success": True,
+                "message": "获取配置成功",
+                "data": config
+            }
+        except Exception as e:
+            logger.error(f"获取配置API调用失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def get_status_api(self):
+        """
+        获取插件状态API端点
+        """
+        try:
+            return {
+                "success": True,
+                "message": "获取状态成功",
+                "data": {
+                    "enabled": self._enabled,
+                    "search_enabled": self._enable_search,
+                    "filter_enabled": self._enable_filter,
+                    "plugin_version": self.plugin_version,
+                    "plugin_author": self.plugin_author
+                }
+            }
+        except Exception as e:
+            logger.error(f"获取状态API调用失败: {str(e)}")
+            from fastapi import HTTPException
+            raise HTTPException(status_code=500, detail=str(e))
+
     def get_actions(self) -> List[Dict[str, Any]]:
         """
         获取插件工作流动作
