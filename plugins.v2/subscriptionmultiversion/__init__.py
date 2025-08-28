@@ -10,7 +10,7 @@ from datetime import datetime
 from app.core.config import settings
 from app.core.context import Context, MediaInfo
 from app.schemas.workflow import ActionContext
-from app.core.plugin import PluginType, _PluginBase
+from app.core.plugin import _PluginBase
 from app.helper.torrent import TorrentHelper
 from app.helper.subscribe import SubscribeHelper
 from app.helper.sites import SitesHelper
@@ -637,3 +637,9 @@ class SubscriptionMultiVersion(_PluginBase):
                 ]
             }
         ]
+    
+    def stop_service(self):
+        """
+        停止插件服务
+        """
+        pass
