@@ -17,6 +17,7 @@ from app.helper.sites import SitesHelper
 from app.modules.filter import FilterModule
 from app.chain.search import SearchChain
 from app.chain.download import DownloadChain
+from app.chain.media import MediaChain
 from app.helper.downloader import DownloaderHelper
 from app.db.subscribe_oper import SubscribeOper
 from app.db.models.subscribe import Subscribe
@@ -83,6 +84,7 @@ class SubscriptionMultiVersion(_PluginBase):
         self._download_chain = DownloadChain()
         self._downloader_helper = DownloaderHelper()
         self._subscribe_oper = SubscribeOper()
+        self._media_chain = MediaChain()
 
     def get_state(self) -> bool:
         """
@@ -299,15 +301,11 @@ class SubscriptionMultiVersion(_PluginBase):
             # 处理每个订阅
             for subscribe in subscribes:
                 try:
-                    # 构建媒体信息
-                    media_info = MediaInfo()
-                    media_info.title = subscribe.name
-                    media_info.year = subscribe.year
-                    media_info.type = MediaType(subscribe.type)
-                    media_info.tmdb_id = subscribe.tmdbid
-                    media_info.season = subscribe.season
-                    media_info.episode = subscribe.episode
-                    media_info.total_episode = subscribe.total_episode
+                    # 转换订阅为媒体信息
+                    media_info = self._convert_subscribe_to_media_info(subscribe)
+                    if not media_info:
+                        logger.warning(f"订阅 {subscribe.name} 转换媒体信息失败，跳过处理")
+                        continue
 
                     media_infos.append(media_info)
 
@@ -334,6 +332,43 @@ class SubscriptionMultiVersion(_PluginBase):
         except Exception as e:
             logger.error(f"查询订阅种子失败: {str(e)}")
             return False, context
+
+    def _convert_subscribe_to_media_info(self, subscribe: Subscribe) -> Optional[MediaInfo]:
+        """
+        将订阅对象转换为媒体信息对象
+        :param subscribe: 订阅对象
+        :return: 媒体信息对象
+        """
+        try:
+            # 构建元数据对象
+            meta = MetaInfo(subscribe.name)
+            meta.year = subscribe.year
+            meta.begin_season = subscribe.season or None
+            meta.type = MediaType(subscribe.type)
+
+            # 使用媒体识别链获取完整的媒体信息
+            mediainfo: MediaInfo = self._media_chain.recognize_media(
+                meta=meta,
+                mtype=meta.type,
+                tmdbid=subscribe.tmdbid,
+                doubanid=subscribe.doubanid,
+                bangumiid=subscribe.bangumiid,
+                episode_group=subscribe.episode_group,
+                cache=False
+            )
+
+            if not mediainfo:
+                logger.warn(f'未识别到媒体信息，标题：{subscribe.name}，tmdbid：{subscribe.tmdbid}，doubanid：{subscribe.doubanid}')
+                return None
+
+            return mediainfo
+
+        except ValueError as e:
+            logger.error(f'订阅 {subscribe.name} 类型转换错误：{str(e)}')
+            return None
+        except Exception as e:
+            logger.error(f'转换订阅 {subscribe.name} 到媒体信息失败：{str(e)}')
+            return None
 
     def filter_torrents(self, context: ActionContext, **kwargs) -> Tuple[bool, ActionContext]:
         """
