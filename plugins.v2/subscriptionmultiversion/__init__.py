@@ -494,21 +494,28 @@ class SubscriptionMultiVersion(_PluginBase):
         try:
             site_torrents = []
 
+            # 准备搜索参数（参考app/chain/search.py的__prepare_params方法）
+            season_episodes, keywords = self._prepare_search_params(media_info)
+
             # 构建搜索参数
             search_params = {
-                "keyword": media_info.title,
+                "keywords": keywords,
                 "media_type": media_info.type.value,
-                "season": media_info.season,
-                "episode": media_info.episode,
+                "season_episodes": season_episodes,
                 "year": media_info.year,
                 "sites": search_sites if search_sites else None
             }
 
-            # 执行搜索
-            search_results = self._search_chain.search_by_title(
-                search_params["keyword"],
-                sites=search_params["sites"]
-            )
+
+
+            # 执行搜索（支持多个关键词）
+            search_results = []
+            for keyword in search_params["keywords"]:
+                results = self._search_chain.search_by_title(
+                    keyword,
+                    sites=search_params["sites"]
+                )
+                search_results.extend(results)
 
             for result in search_results:
                 try:
@@ -531,6 +538,36 @@ class SubscriptionMultiVersion(_PluginBase):
         except Exception as e:
             logger.error(f"搜索站点种子失败: {str(e)}")
             return []
+
+    def _prepare_search_params(self, mediainfo: MediaInfo) -> Tuple[Dict[int, List[int]], List[str]]:
+        """
+        准备搜索参数（参考app/chain/search.py的__prepare_params方法）
+        """
+        from app.core.config import settings
+
+        # 缺失的季集（这里简化处理，如果没有no_exists参数则使用当前季）
+        if mediainfo.season:
+            season_episodes = {mediainfo.season: []}
+        else:
+            season_episodes = None
+
+        # 搜索关键词（去重去空，保持顺序）
+        keywords = list(dict.fromkeys([
+            k for k in [
+                mediainfo.title,
+                mediainfo.original_title,
+                mediainfo.en_title,
+                mediainfo.hk_title,
+                mediainfo.tw_title,
+                mediainfo.sg_title
+            ] if k
+        ]))
+
+        # 限制搜索关键词数量
+        if hasattr(settings, 'MAX_SEARCH_NAME_LIMIT') and settings.MAX_SEARCH_NAME_LIMIT:
+            keywords = keywords[:settings.MAX_SEARCH_NAME_LIMIT]
+
+        return season_episodes, keywords
 
     def _match_torrent_to_subscribe(self, torrent, subscribe: Subscribe, media_info: MediaInfo) -> bool:
         """

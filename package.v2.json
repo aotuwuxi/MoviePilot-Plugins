@@ -1,9 +1,10 @@
 {
+
   "SubscriptionMultiVersion": {
     "name": "订阅多资源版本订阅",
     "description": "提供基于订阅的多资源版本管理和过滤功能，支持查询订阅种子、过滤种子资源、更新订阅状态等完整工作流。",
     "labels": "订阅,工作流,过滤",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "icon": "rss.png",
     "author": "Claude",
     "level": 2,
