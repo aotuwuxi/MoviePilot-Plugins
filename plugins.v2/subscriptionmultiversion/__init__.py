@@ -1005,13 +1005,27 @@ class SubscriptionMultiVersion(_PluginBase):
                 downloaded_episodes[subscribe_id] = set()
 
             for torrent in downloaded_torrents:
-                media_info = torrent.media_info
-                if media_info and media_info.type == MediaType.TV:
-                    if media_info.begin_episode:
-                        downloaded_episodes[subscribe_id].add(media_info.begin_episode)
-                    elif media_info.season:
-                        # 整季下载
-                        downloaded_episodes[subscribe_id].add(f"s{media_info.season}")
+                meta_info = torrent.meta_info
+                if not meta_info:
+                    continue
+
+                # 从种子的meta_info中获取集数信息
+                if meta_info.episode_list:
+                    # 多集种子：记录每一集
+                    for episode in meta_info.episode_list:
+                        downloaded_episodes[subscribe_id].add(episode)
+                elif meta_info.begin_episode:
+                    # 单集种子：记录开始集
+                    if meta_info.end_episode:
+                        # 如果有结束集，记录范围内的所有集
+                        for episode in range(meta_info.begin_episode, meta_info.end_episode + 1):
+                            downloaded_episodes[subscribe_id].add(episode)
+                    else:
+                        # 只有开始集
+                        downloaded_episodes[subscribe_id].add(meta_info.begin_episode)
+                elif meta_info.season:
+                    # 整季种子：episode_list为空代表整季都包含
+                    downloaded_episodes[subscribe_id].add(f"s{meta_info.season}")
 
         except Exception as e:
             logger.error(f"记录已下载集数失败: {str(e)}")
