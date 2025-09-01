@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
 
 from app.core.config import settings
-from app.core.context import Context, MediaInfo, MetaInfo
+from app.core.context import Context, MediaInfo, MetaInfo, TorrentInfo
 from app.plugins import _PluginBase
 from app.schemas.workflow import ActionContext
 from app.helper.torrent import TorrentHelper
@@ -21,9 +21,9 @@ from app.chain.media import MediaChain
 from app.helper.downloader import DownloaderHelper
 from app.db.subscribe_oper import SubscribeOper
 from app.db.models.subscribe import Subscribe
+from app.db.downloadhistory_oper import DownloadHistoryOper
+from app.db.models.downloadhistory import DownloadHistory
 from app.schemas.types import MediaType
-from app.utils.http import RequestUtils
-from app.utils.string import StringUtils
 from app.log import logger
 
 
@@ -60,6 +60,7 @@ class SubscriptionMultiVersion(_PluginBase):
     _download_chain: DownloadChain = None
     _downloader_helper: DownloaderHelper = None
     _subscribe_oper: SubscribeOper = None
+    _download_history_oper: DownloadHistoryOper = None
     _enabled: bool = False
     _enable_search: bool = True
     _enable_filter: bool = True
@@ -84,6 +85,7 @@ class SubscriptionMultiVersion(_PluginBase):
         self._download_chain = DownloadChain()
         self._downloader_helper = DownloaderHelper()
         self._subscribe_oper = SubscribeOper()
+        self._download_history_oper = DownloadHistoryOper()
         self._media_chain = MediaChain()
 
     def get_state(self) -> bool:
@@ -237,33 +239,147 @@ class SubscriptionMultiVersion(_PluginBase):
 
         actions = []
 
-        # 查询订阅种子动作
-        if self._enable_search:
-            actions.append({
-                "action_id": "query_subscribe_torrents",
-                "name": "查询订阅种子",
-                "func": self.query_subscribe_torrents,
-                "description": "根据订阅查询种子资源",
-                "kwargs": {
-                    "subscribe_ids": [],
-                    "search_sites": []
-                }
-            })
-
-        # 种子过滤动作
-        if self._enable_filter:
-            actions.append({
-                "action_id": "filter_torrents",
-                "name": "过滤种子",
-                "func": self.filter_torrents,
-                "description": "根据规则过滤种子资源",
-                "kwargs": {
-                    "filter_rules": self._default_filter_rules,
-                    "prioritize_downloaded": True
-                }
-            })
+        # 订阅多版本过滤动作（合并查询和过滤）
+        actions.append({
+            "action_id": "subscribe_multiversion_filter",
+            "name": "订阅多版本过滤",
+            "func": self.subscribe_multiversion_filter,
+            "description": "查询订阅种子并进行多版本过滤",
+            "kwargs": {
+                "subscribe_ids": [],
+                "search_sites": [],
+                "rule_groups": [],
+                "quality": None,
+                "resolution": None,
+                "effect": None,
+                "include": None,
+                "exclude": None,
+                "size": None,
+                "prioritize_downloaded": True
+            }
+        })
 
         return actions
+
+    def subscribe_multiversion_filter(self, context: ActionContext, **kwargs) -> Tuple[bool, ActionContext]:
+        """
+        订阅多版本过滤动作（合并查询和过滤）
+        :param context: 工作流上下文
+        :param kwargs: 动作参数
+        :return: (执行状态, 更新后的上下文)
+        """
+        try:
+            # 获取查询参数
+            subscribe_ids = kwargs.get("subscribe_ids", [])
+            search_sites = kwargs.get("search_sites", [])
+
+            # 获取过滤参数
+            rule_groups = kwargs.get("rule_groups", [])
+            quality = kwargs.get("quality")
+            resolution = kwargs.get("resolution")
+            effect = kwargs.get("effect")
+            include = kwargs.get("include")
+            exclude = kwargs.get("exclude")
+            size = kwargs.get("size")
+            prioritize_downloaded = kwargs.get("prioritize_downloaded", True)
+
+            logger.info(f"开始订阅多版本过滤，订阅ID: {subscribe_ids}, 站点: {search_sites}")
+
+            # 获取订阅信息
+            if context.subscribes:
+                # 从上下文中获取订阅
+                subscribes = context.subscribes
+            else:
+                # 从数据库查询订阅
+                if subscribe_ids:
+                    subscribes = [self._subscribe_oper.get(sid) for sid in subscribe_ids if self._subscribe_oper.get(sid)]
+                else:
+                    subscribes = self._subscribe_oper.list()
+
+            if not subscribes:
+                logger.warning("未找到订阅信息")
+                return True, context
+
+            # 初始化结果
+            all_torrents = []
+            media_infos = []
+            downloaded_episodes = {}  # 记录已下载的集数，按订阅ID分组
+
+            # 处理每个订阅
+            for subscribe in subscribes:
+                try:
+                    # 转换订阅为媒体信息
+                    media_info = self._convert_subscribe_to_media_info(subscribe)
+                    if not media_info:
+                        logger.warning(f"订阅 {subscribe.name} 转换媒体信息失败，跳过处理")
+                        continue
+
+                    media_infos.append(media_info)
+
+                    # 搜索站点种子（不包含已下载种子）
+                    site_torrents = self._search_site_torrents(
+                        media_info,
+                        search_sites,
+                        subscribe
+                    )
+
+                    # 获取该订阅的已下载种子
+                    if prioritize_downloaded:
+                        downloaded_torrents = self._get_downloaded_torrents_for_subscribe(subscribe, media_info)
+
+                        # 先过滤已下载种子，只有符合规则的才参与去重
+                        valid_downloaded_torrents = self._filter_torrents_with_rules(
+                            downloaded_torrents,
+                            media_info,
+                            rule_groups=rule_groups,
+                            quality=quality,
+                            resolution=resolution,
+                            effect=effect,
+                            include=include,
+                            exclude=exclude,
+                            size=size,
+                            downloaded_episodes=set(),  # 已下载种子之间不去重
+                            prioritize_downloaded=False  # 已下载种子不做去重检查
+                        )
+
+                        # 只记录符合规则的已下载种子的集数
+                        self._record_downloaded_episodes_for_subscribe(subscribe.id, valid_downloaded_torrents, downloaded_episodes)
+
+                        # 将符合条件的已下载种子添加到总列表中
+                        site_torrents.extend(valid_downloaded_torrents)
+
+                    # 过滤种子
+                    filtered_torrents = self._filter_torrents_with_rules(
+                        site_torrents,
+                        media_info,
+                        rule_groups=rule_groups,
+                        quality=quality,
+                        resolution=resolution,
+                        effect=effect,
+                        include=include,
+                        exclude=exclude,
+                        size=size,
+                        downloaded_episodes=downloaded_episodes.get(subscribe.id, set()),
+                        prioritize_downloaded=prioritize_downloaded
+                    )
+
+                    all_torrents.extend(filtered_torrents)
+
+                except Exception as e:
+                    logger.error(f"处理订阅 {subscribe.name} 时出错: {str(e)}")
+                    continue
+
+            # 更新上下文
+            context.torrents = all_torrents
+            context.medias = media_infos
+            context.content = f"订阅多版本过滤完成，共找到 {len(all_torrents)} 个种子资源"
+
+            logger.info(f"订阅多版本过滤完成，共找到 {len(all_torrents)} 个种子")
+            return True, context
+
+        except Exception as e:
+            logger.error(f"订阅多版本过滤失败: {str(e)}")
+            return False, context
 
     def query_subscribe_torrents(self, context: ActionContext, **kwargs) -> Tuple[bool, ActionContext]:
         """
@@ -286,7 +402,7 @@ class SubscriptionMultiVersion(_PluginBase):
             else:
                 # 从数据库查询订阅
                 if subscribe_ids:
-                    subscribes = self._subscribe_oper.get_subscriptions(subscribe_ids)
+                    subscribes = [self._subscribe_oper.get(sid) for sid in subscribe_ids if self._subscribe_oper.get(sid)]
                 else:
                     subscribes = self._subscribe_oper.list()
 
@@ -654,7 +770,7 @@ class SubscriptionMultiVersion(_PluginBase):
         记录已下载的集数
         """
         try:
-            media_info = torrent.torrent_info.media_info
+            media_info = torrent.media_info
             if media_info and media_info.type == MediaType.TV:
                 if media_info.episode:
                     downloaded_episodes.add(media_info.episode)
@@ -670,7 +786,7 @@ class SubscriptionMultiVersion(_PluginBase):
         检查集数是否已被覆盖
         """
         try:
-            media_info = torrent.torrent_info.media_info
+            media_info = torrent.media_info
             if not media_info or media_info.type != MediaType.TV:
                 return False
 
@@ -834,3 +950,174 @@ class SubscriptionMultiVersion(_PluginBase):
         停止插件服务
         """
         pass
+
+    def _get_downloaded_torrents_for_subscribe(self, subscribe: Subscribe, media_info: MediaInfo) -> List[Context]:
+        """
+        根据订阅获取已下载的种子
+        """
+        try:
+            downloaded_torrents = []
+
+            # 使用下载历史获取已下载的种子
+            try:
+                # 查询该订阅的下载历史
+                if media_info.tmdb_id:
+                    download_history = self._download_history_oper.get_by_mediaid(
+                        tmdbid=media_info.tmdb_id,
+                        doubanid=media_info.douban_id or ""
+                    )
+                else:
+                    download_history = []
+
+                for history in download_history:
+                    # 转换为Context对象
+                    context_obj = Context()
+                    # 创建TorrentInfo对象
+                    torrent_info = TorrentInfo(
+                        title=history.torrent_name or "",
+                        site=history.torrent_site or "",
+                        description=history.torrent_description or "",
+                        size=0  # 下载历史中没有大小信息
+                    )
+                    context_obj.torrent_info = torrent_info
+                    context_obj.media_info = media_info
+                    # 将下载信息存储在meta_info中
+                    context_obj.meta_info = MetaInfo(title=history.torrent_name or "")
+                    context_obj.meta_info.org_string = f"downloaded:{subscribe.id}"
+                    downloaded_torrents.append(context_obj)
+
+            except Exception as e:
+                logger.error(f"获取已下载种子失败: {str(e)}")
+
+            logger.info(f"从下载历史获取到 {len(downloaded_torrents)} 个已下载种子")
+            return downloaded_torrents
+
+        except Exception as e:
+            logger.error(f"获取已下载种子失败: {str(e)}")
+            return []
+
+    def _record_downloaded_episodes_for_subscribe(self, subscribe_id: int, downloaded_torrents: List[Context], downloaded_episodes: dict):
+        """
+        记录已下载的集数（按订阅ID分组）
+        """
+        try:
+            if subscribe_id not in downloaded_episodes:
+                downloaded_episodes[subscribe_id] = set()
+
+            for torrent in downloaded_torrents:
+                media_info = torrent.media_info
+                if media_info and media_info.type == MediaType.TV:
+                    if media_info.begin_episode:
+                        downloaded_episodes[subscribe_id].add(media_info.begin_episode)
+                    elif media_info.season:
+                        # 整季下载
+                        downloaded_episodes[subscribe_id].add(f"s{media_info.season}")
+
+        except Exception as e:
+            logger.error(f"记录已下载集数失败: {str(e)}")
+
+    def _filter_torrents_with_rules(self, torrents: List[Context], media_info: MediaInfo,
+                                  rule_groups: List[str] = None, quality: str = None,
+                                  resolution: str = None, effect: str = None, include: str = None,
+                                  exclude: str = None, size: str = None,
+                                  downloaded_episodes: set = None, prioritize_downloaded: bool = True) -> List[Context]:
+        """
+        使用规则过滤种子
+        """
+        try:
+            filtered_torrents = []
+
+            if downloaded_episodes is None:
+                downloaded_episodes = set()
+
+            # 构建过滤参数
+            filter_params = {
+                "quality": quality,
+                "resolution": resolution,
+                "effect": effect,
+                "include": include,
+                "exclude": exclude,
+                "size": size
+            }
+
+            for torrent in torrents:
+                try:
+                    # 检查是否是已下载种子
+                    is_downloaded = (torrent.meta_info and torrent.meta_info.org_string and
+                                  torrent.meta_info.org_string.startswith("downloaded:"))
+
+                    # 如果是已下载种子，检查是否通过过滤
+                    if is_downloaded:
+                        if self._check_torrent_filter(torrent, filter_params):
+                            # 已下载种子通过过滤，保留
+                            filtered_torrents.append(torrent)
+                        continue
+
+                    # 如果不是已下载种子，检查是否完全被已下载种子覆盖
+                    if prioritize_downloaded and self._is_episode_covered_for_media(torrent, media_info, downloaded_episodes):
+                        # 该种子的所有集数都已经被下载，跳过
+                        continue
+
+                    # 应用基本过滤规则
+                    if not TorrentHelper.filter_torrent(torrent.torrent_info, filter_params):
+                        continue
+
+                    # 应用规则组过滤
+                    if rule_groups:
+                        filtered_by_rules = self._filter_module.filter_torrents(
+                            rule_groups,
+                            [torrent.torrent_info],
+                            media_info
+                        )
+                        if not filtered_by_rules:
+                            continue
+
+                    # 通过所有过滤，保留种子
+                    filtered_torrents.append(torrent)
+
+                except Exception as e:
+                    logger.error(f"过滤种子时出错: {str(e)}")
+                    continue
+
+            return filtered_torrents
+
+        except Exception as e:
+            logger.error(f"过滤种子失败: {str(e)}")
+            return []
+
+    def _is_episode_covered_for_media(self, torrent: Context, media_info: MediaInfo, downloaded_episodes: set) -> bool:
+        """
+        检查种子是否完全被已下载集数覆盖
+        只有当种子的所有集数都已经被下载时，才返回True进行过滤
+        """
+        try:
+            torrent_info = torrent.torrent_info
+            if not torrent_info or not media_info or media_info.type != MediaType.TV:
+                return False
+
+            # 从种子标题中解析集数信息
+            meta_info = MetaInfo(torrent_info.title)
+
+            # 如果是整季种子
+            if not meta_info.episode_list and meta_info.season:
+                # 检查是否该整季已经下载
+                season_key = f"s{meta_info.season}"
+                return season_key in downloaded_episodes
+
+            # 如果是多集种子
+            elif meta_info.episode_list:
+                # 检查是否所有集都已经被下载
+                for episode in meta_info.episode_list:
+                    if episode not in downloaded_episodes:
+                        return False
+                return True
+
+            # 如果是单集种子
+            elif meta_info.begin_episode:
+                return meta_info.begin_episode in downloaded_episodes
+
+            return False
+
+        except Exception as e:
+            logger.error(f"检查集数覆盖失败: {str(e)}")
+            return False
