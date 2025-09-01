@@ -242,7 +242,7 @@ class SubscriptionMultiVersion(_PluginBase):
         # 订阅多版本过滤动作（合并查询和过滤）
         actions.append({
             "action_id": "subscribe_multiversion_filter",
-            "name": "订阅多版本过滤",
+            "name": "subscribe_multiversion_filter",
             "func": self.subscribe_multiversion_filter,
             "description": "查询订阅种子并进行多版本过滤",
             "kwargs": {
