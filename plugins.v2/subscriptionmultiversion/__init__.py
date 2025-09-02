@@ -7,8 +7,10 @@ import json
 from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
 
+from app.actions import ActionChain
 from app.core.config import settings
 from app.core.context import Context, MediaInfo, MetaInfo, TorrentInfo
+from app.db.systemconfig_oper import SystemConfigOper
 from app.plugins import _PluginBase
 from app.schemas.workflow import ActionContext
 from app.helper.torrent import TorrentHelper
@@ -23,7 +25,7 @@ from app.db.subscribe_oper import SubscribeOper
 from app.db.models.subscribe import Subscribe
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.models.downloadhistory import DownloadHistory
-from app.schemas.types import MediaType
+from app.schemas.types import MediaType, SystemConfigKey
 from app.log import logger
 
 
@@ -308,6 +310,7 @@ class SubscriptionMultiVersion(_PluginBase):
             # 处理每个订阅
             for subscribe in subscribes:
                 try:
+                    custom_word_list = subscribe.custom_words.split("\n") if subscribe.custom_words else None
                     # 转换订阅为媒体信息
                     media_info = self._convert_subscribe_to_media_info(subscribe)
                     if not media_info:
@@ -316,52 +319,79 @@ class SubscriptionMultiVersion(_PluginBase):
 
                     media_infos.append(media_info)
 
-                    # 搜索站点种子（不包含已下载种子）
-                    site_torrents = self._search_site_torrents(
-                        media_info,
-                        search_sites,
-                        subscribe
-                    )
+                    # 搜索，同时电视剧会过滤掉不需要的剧集
+                    searchContexts = SearchChain().process(mediainfo=media_info,
+                                                     keyword=subscribe.keyword,
+                                                     sites=subscribe.sites,
+                                                     rule_groups=rule_groups,
+                                                     area="imdbid" if subscribe.search_imdbid else "title",
+                                                     custom_words=custom_word_list,
+                                                     filter_params=self.get_params(subscribe, **kwargs))
 
+
+                    # # 搜索站点种子（不包含已下载种子）
+                    # site_torrents = self._search_site_torrents(
+                    #     media_info,
+                    #     search_sites,
+                    #     subscribe
+                    # )
+
+                    valid_downloaded_torrents = []
                     # 获取该订阅的已下载种子
                     if prioritize_downloaded:
                         downloaded_torrents = self._get_downloaded_torrents_for_subscribe(subscribe, media_info)
+                        for torrent in downloaded_torrents:
 
-                        # 先过滤已下载种子，只有符合规则的才参与去重
-                        valid_downloaded_torrents = self._filter_torrents_with_rules(
-                            downloaded_torrents,
-                            media_info,
-                            rule_groups=rule_groups,
-                            quality=quality,
-                            resolution=resolution,
-                            effect=effect,
-                            include=include,
-                            exclude=exclude,
-                            size=size,
-                            downloaded_episodes=set(),  # 已下载种子之间不去重
-                            prioritize_downloaded=False  # 已下载种子不做去重检查
-                        )
+                            if TorrentHelper().filter_torrent(
+                                    torrent_info=torrent.torrent_info,
+                                    filter_params={
+                                        "quality": quality,
+                                        "resolution": resolution,
+                                        "effect": effect,
+                                        "include": include,
+                                        "exclude": exclude,
+                                        "size": size
+                                    }
+                            ):
+                                if ActionChain().filter_torrents(
+                                        rule_groups=rule_groups,
+                                        torrent_list=[torrent.torrent_info],
+                                        mediainfo=torrent.media_info
+                                ):
+                                    valid_downloaded_torrents.append(torrent)
+
+
 
                         # 只记录符合规则的已下载种子的集数
                         self._record_downloaded_episodes_for_subscribe(subscribe.id, valid_downloaded_torrents, downloaded_episodes)
 
-                        # 将符合条件的已下载种子添加到总列表中
-                        site_torrents.extend(valid_downloaded_torrents)
-
                     # 过滤种子
-                    filtered_torrents = self._filter_torrents_with_rules(
-                        site_torrents,
-                        media_info,
-                        rule_groups=rule_groups,
-                        quality=quality,
-                        resolution=resolution,
-                        effect=effect,
-                        include=include,
-                        exclude=exclude,
-                        size=size,
-                        downloaded_episodes=downloaded_episodes.get(subscribe.id, set()),
-                        prioritize_downloaded=prioritize_downloaded
-                    )
+                    filtered_torrents = []
+                    for searchTorrent in searchContexts:
+
+
+                        if TorrentHelper().filter_torrent(
+                                torrent_info=searchTorrent.torrent_info,
+                                filter_params={
+                                    "quality": quality,
+                                    "resolution": resolution,
+                                    "effect": effect,
+                                    "include": include,
+                                    "exclude": exclude,
+                                    "size": size
+                                }
+                        ):
+                            if prioritize_downloaded and self._is_episode_covered_for_media(searchTorrent, media_info,
+                                                                                            downloaded_episodes.get(subscribe.id, set())):
+                                # 该种子的所有集数都已经被下载，跳过
+                                continue
+                            if ActionChain().filter_torrents(
+                                    rule_groups=rule_groups,
+                                    torrent_list=[searchTorrent.torrent_info],
+                                    mediainfo=searchTorrent.media_info
+                            ):
+                                filtered_torrents.append(searchTorrent)
+
 
                     all_torrents.extend(filtered_torrents)
 
@@ -996,7 +1026,7 @@ class SubscriptionMultiVersion(_PluginBase):
             logger.error(f"获取已下载种子失败: {str(e)}")
             return []
 
-    def _record_downloaded_episodes_for_subscribe(self, subscribe_id: int, downloaded_torrents: List[Context], downloaded_episodes: dict):
+    def _record_downloaded_episodes_for_subscribe(self, subscribe_id: int, downloaded_torrents:List[Context], downloaded_episodes: dict):
         """
         记录已下载的集数（按订阅ID分组）
         """
@@ -1135,3 +1165,33 @@ class SubscriptionMultiVersion(_PluginBase):
         except Exception as e:
             logger.error(f"检查集数覆盖失败: {str(e)}")
             return False
+
+    @staticmethod
+    def get_params(subscribe: Subscribe, **kwargs):
+        """
+        获取订阅默认参数
+        """
+        # 默认过滤规则
+        default_rule = SystemConfigOper().get(SystemConfigKey.SubscribeDefaultParams) or {}
+
+
+        # 获取过滤参数
+        quality = kwargs.get("quality")
+        resolution = kwargs.get("resolution")
+        effect = kwargs.get("effect")
+        include = kwargs.get("include")
+        exclude = kwargs.get("exclude")
+        size = kwargs.get("size")
+
+        return {
+            key: value for key, value in {
+                "include": include or subscribe.include or default_rule.get("include"),
+                "exclude": exclude or subscribe.exclude or default_rule.get("exclude"),
+                "quality": quality or subscribe.quality or default_rule.get("quality"),
+                "resolution": resolution or subscribe.resolution or default_rule.get("resolution"),
+                "effect": effect or subscribe.effect or default_rule.get("effect"),
+                "tv_size": size or default_rule.get("tv_size"),
+                "movie_size": size or default_rule.get("movie_size"),
+                "min_seeders": default_rule.get("min_seeders"),
+                "min_seeders_time": default_rule.get("min_seeders_time"),
+            }.items() if value is not None}
